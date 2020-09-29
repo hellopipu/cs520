@@ -1,8 +1,12 @@
 import numpy as np
+import matplotlib as mpl
+mpl.use("Agg")
 import matplotlib.pyplot as plt
 import  time
 import copy
 from tqdm import tqdm
+from multiprocessing import Pool
+from functools import partial
 class timer(object):
     '''
     wrapper, calculate time of the function.
@@ -156,11 +160,13 @@ def DFS_search(matrix,goal_point,ignore_fire = False):
     :return: solvable or not
     '''
     if matrix is None or goal_point is None:
-        return False
-    start_pos = [0,0]
+        return []
+    start_point = [0,0]
     stack = Stack()
-    stack.push(start_pos)
+    stack.push(start_point)
     history = []
+    flag_deep_path = 0
+    parents_dict = {}
     while len(stack):
         current_pos = stack.pop()
         # print('current_pos',current_pos)
@@ -169,15 +175,32 @@ def DFS_search(matrix,goal_point,ignore_fire = False):
         else:
             history.append(current_pos)
             # print('append_pos', current_pos)
-        if current_pos != goal_point:
-            next_choice = get_next_choice(matrix, current_pos, history, ignore_fire)
-            for i in next_choice:
-                if i== goal_point:
-                    return True
-                stack.push(i)
-        else:
-            return True
-    return False
+        next_choice = get_next_choice(matrix, current_pos, history, ignore_fire)
+
+
+        for i in next_choice:
+            parents_dict[str(i)] = current_pos
+            if i == goal_point:
+                #### find the goal, break the loop
+                flag_deep_path = 1
+                break
+            stack.push(i)
+        if flag_deep_path == 1:
+            break
+    if flag_deep_path == 1:
+        ### refind the path
+        last_node = goal_point
+        deep_path = [last_node]
+        # print(parents_dict)
+        while 1:
+            deep_path.append(parents_dict[str(last_node)])
+            last_node = parents_dict[str(last_node)]
+            if deep_path[-1] == start_point:
+                break
+        return deep_path[::-1]
+    else:
+        return []
+
 
 def search_valid(maze_matrix):
     '''
@@ -234,9 +257,10 @@ def generate_advanced_maze(maze_matrix,q,step = 0):
                         cnt_neighbor_on_fire += 1
                     if np.random.rand() <= 1 - (1 - q) ** cnt_neighbor_on_fire:
                         maze_matrix_advance[i, j] = 1
-            maze_matrix = maze_matrix_advance
+        maze_matrix = copy.deepcopy(maze_matrix_advance)
         maze_matrix_advance_list.append(copy.deepcopy(maze_matrix_advance))
     return maze_matrix_advance_list
+
 @timer(False)
 def BFS_search(matrix,start_point):
     '''
@@ -286,10 +310,95 @@ def BFS_search(matrix,start_point):
         return shortest_path[::-1]
     else:
         return []
-def generate_cost_map(matrix):
+def get_neighbor(pos,dim):
+    neighbor_list = []
+    if pos[0]-1>=0:
+        neighbor_list.append([pos[0]-1,pos[1]])
+    if pos[0]+1<dim:
+        neighbor_list.append([pos[0]+1,pos[1]])
+    if pos[1]-1>=0:
+        neighbor_list.append([pos[0],pos[1]-1])
+    if pos[1]+1<dim:
+        neighbor_list.append([pos[0],pos[1]+1])
+    return neighbor_list
+def generate_cost_map(matrix_,fire_point_list,q):
+    matrix = copy.deepcopy(matrix_)
+    dim = matrix.shape[0]
     matrix[matrix!=1]=0
-    while 0 in matrix:
-        pass
+    cost_map = copy.deepcopy(matrix)
+    # for i in range(1,4):
+    #     for j in range(1,dim-1):
+    #         for  k in range(1,dim-1):
+    #             if cost_map[j,k]==i:
+    #                 cost_map[j-1, k] = i+1 if cost_map[j-1,k]==0 else cost_map[j-1,k]
+    #                 cost_map[j, k-1] = i + 1 if cost_map[j, k-1] == 0 else cost_map[j, k-1]
+    #                 cost_map[j+1, k] = i + 1 if cost_map[j+1, k] == 0 else cost_map[j+1, k]
+    #                 cost_map[j, k+1] = i + 1 if cost_map[j, k+1] == 0 else cost_map[j, k+1]
+    while 0 in cost_map:
+        l_new_fire = []
+        for i in fire_point_list:
+            for j in get_neighbor(i,dim):
+                if cost_map[j[0],j[1]] == 0:
+                    l_new_fire.append(j)
+                    cost_map[j[0], j[1]] = cost_map[i[0],i[1]] + 1
+        fire_point_list = copy.deepcopy(l_new_fire)
+    cost_map[cost_map==1]=2
+    cost_map = np.exp(10*q**cost_map)
+    return cost_map
+
+
+
+def Astar_search_future(matrix, start_point,fire_point_list,q):
+    # generate_cost_map(matrix)
+    '''
+    Astar Search
+    :param matrix:
+    :param start_point:
+    :return:
+    '''
+    if matrix is None :
+        return False
+    dim = matrix.shape[0]
+    goal_point = [dim-1,dim-1]
+    cost_map = generate_cost_map(matrix,fire_point_list,q)
+    queue = Prior_Queue()
+    queue.add({'pos':start_point,'dist':cost_map[start_point[0],start_point[1]],'heur':2*(dim-1)-start_point[0]-start_point[1], 'prior':2*(dim-1)-start_point[0]-start_point[1]+cost_map[start_point[0],start_point[1]]})
+    history = []
+    flag_shortest_path = 0
+    parents_dict={}
+    while len(queue):
+        current_node = queue.pop()
+        current_pos = current_node['pos']
+        current_dist = current_node['dist']
+        if current_pos in history:
+            continue
+        else:
+            history.append(current_pos)
+            # print(current_node['prior'])
+
+        next_choice = get_next_choice(matrix, current_pos, history)
+        for i in next_choice:
+            parents_dict[str(i)] = current_pos
+            if i== goal_point:
+                #### find the goal, break the loop
+                flag_shortest_path = 1
+                break
+            queue.add({'pos':i,'dist':current_dist+cost_map[i[0],i[1]],'heur':2*(dim-1)-i[0]-i[1], 'prior':(2*(dim-1)-i[0]-i[1]+ current_dist+cost_map[i[0],i[1]])})
+        if flag_shortest_path ==1:
+            break
+    if flag_shortest_path == 1:
+        ### refind the path
+        last_node = goal_point
+        shortest_path = [last_node]
+        # print(parents_dict)
+        while 1:
+            shortest_path.append(parents_dict[str(last_node)])
+            last_node = parents_dict[str(last_node)]
+            if shortest_path[-1]==start_point:
+                break
+        return shortest_path[::-1]
+    else:
+        return []
 
 @timer(False)
 def Astar_search(matrix, start_point):
@@ -305,7 +414,7 @@ def Astar_search(matrix, start_point):
     dim = matrix.shape[0]
     goal_point = [dim-1,dim-1]
     queue = Prior_Queue()
-    queue.add({'pos':start_point,'dist':0,'heur':2*(dim-1), 'prior':2*(dim-1)})
+    queue.add({'pos':start_point,'dist':0,'heur':2*(dim-1)-start_point[0]-start_point[1], 'prior':2*(dim-1)-start_point[0]-start_point[1]})
     history = []
     flag_shortest_path = 0
     parents_dict={}
@@ -343,8 +452,8 @@ def Astar_search(matrix, start_point):
     else:
         return []
 
-@timer(False)
-def strategy_one(maze_init,q):
+# @timer(False)
+def strategy_one(maze_init,q,advanced_maze):
     '''
     find the shortest path (BFS) of the initial maze, and ignore the fire advance.
     :param maze_init:
@@ -352,7 +461,7 @@ def strategy_one(maze_init,q):
     :return:
     '''
     shortest_path = BFS_search(maze_init,[0,0])
-    advanced_maze = generate_advanced_maze(maze_init,q,step = len(shortest_path)-1)
+    # advanced_maze = generate_advanced_maze(maze_init,q,step = len(shortest_path)-1)
     for maze,pos in zip(advanced_maze,shortest_path[1::]):
         if maze[pos[0],pos[1]] == 2:
             continue
@@ -362,8 +471,8 @@ def strategy_one(maze_init,q):
             return False
     return True
 
-@timer(False)
-def strategy_two(maze_init,q):
+# @timer(False)
+def strategy_two(maze_init,q, advanced_maze):
     '''
     recompute the shortest path (BFS) of the current maze at each step.
     :param maze_init:
@@ -372,20 +481,22 @@ def strategy_two(maze_init,q):
     '''
     start_point = [0, 0]
     dim = maze_init.shape[0]
+    current_step = 0
     while 1:
         shortest_path = BFS_search(maze_init, start_point)
         if len(shortest_path)==0:
             return False
         next_point = shortest_path[1]
-        advanced_maze = generate_advanced_maze(maze_init,q,step = 1)[0]
-        if advanced_maze[next_point[0],next_point[1]] == 1:
+        # advanced_maze = generate_advanced_maze(maze_init,q,step = 1)[0]
+        if advanced_maze[current_step][next_point[0],next_point[1]] == 1:
             return False
         if next_point == [dim-1,dim-1]:
             return True
-        maze_init = advanced_maze
+        maze_init = advanced_maze[current_step]
         start_point = next_point
+        current_step += 1
 
-def strategy_three(maze_init,q):
+def strategy_three_(maze_init,q):
     '''
     using A star method
     :param maze_init:
@@ -394,36 +505,67 @@ def strategy_three(maze_init,q):
     '''
     start_point = [0, 0]
     dim = maze_init.shape[0]
+
     while 1:
-        shortest_path = Astar_search(maze_init, start_point)
+        fire_point_list = []
+        temp_f = np.where(maze_init == 1)
+        for i, j in zip(temp_f[0],temp_f[1]):
+            fire_point_list.append([i, j])
+        shortest_path = Astar_search_future(maze_init, start_point,fire_point_list,q)
         if len(shortest_path)==0:
             return False
         next_point = shortest_path[1]
         advanced_maze = generate_advanced_maze(maze_init,q,step = 1)[0]
+
         if advanced_maze[next_point[0],next_point[1]] == 1:
             return False
         if next_point == [dim-1,dim-1]:
             return True
         maze_init = advanced_maze
         start_point = next_point
-    # start_point = [0, 0]
-    # dim = maze_init.shape[0]
-    # while 1:
-    #     advanced_maze = generate_advanced_maze(maze_init,q,step = 1)[0]
-    #     shortest_path = BFS_search(advanced_maze, start_point)
-    #     if len(shortest_path)==0:
-    #         return False
-    #     next_point = shortest_path[1]
-    #     if next_point == [dim-1,dim-1]:
-    #         return True
-    #     maze_init = advanced_maze
-    #     start_point = next_point
+
+def strategy_three(maze_init,q, advanced_maze):
+    '''
+    using A star method
+    :param maze_init:
+    :param q:
+    :return:
+    '''
+    start_point = [0, 0]
+    dim = maze_init.shape[0]
+    current_step = 0
+    while 1:
+        advanced_maze_suppose = generate_advanced_maze(maze_init, q=1, step=1)[0]
+        # print(len(advanced_maze_suppose))
+        # plt.subplot(131)
+        # plt.imshow(maze_init,'gray')
+        # plt.subplot(132)
+        # plt.imshow(advanced_maze_suppose,'gray')
+        # plt.subplot(133)
+        # plt.imshow(advanced_maze[current_step],'gray')
+        # plt.savefig('debug.png')
+        shortest_path = Astar_search(advanced_maze_suppose, start_point)
+        if len(shortest_path)==0:
+            shortest_path = Astar_search(maze_init, start_point)
+            if len(shortest_path)==0:
+                return False
+        next_point = shortest_path[1]
+        # advanced_maze = generate_advanced_maze(maze_init,q ,step = 1)[0]
+        if advanced_maze[current_step][next_point[0],next_point[1]] == 1:
+            return False
+        if next_point == [dim-1,dim-1]:
+            return True
+        maze_init = advanced_maze[current_step]
+        start_point = next_point
+        current_step+=1
+
 @timer(True)
-def plot_success_vs_flammability(fn1,fn2,dim=30,p=0.3,num_maze = 10, cnt_initial_fire = 10):
+def plot_success_vs_flammability(fn1,fn2,fn3,dim=30,p=0.3,num_maze = 10, cnt_initial_fire = 10):
 
     q_list = [i for i in np.arange(0,1.01,0.05)]
     success_cnt1 = [0 for i in range(len(q_list))]
     success_cnt2 = [0 for i in range(len(q_list))]
+    success_cnt3 = [0 for i in range(len(q_list))]
     x_axis = [i*0.05 for i in range(len(q_list))]
     for _ in tqdm(range(num_maze)):
         maze,fire_source_list = generate_maze(dim,p,cnt_initial_fire)
@@ -434,17 +576,65 @@ def plot_success_vs_flammability(fn1,fn2,dim=30,p=0.3,num_maze = 10, cnt_initial
                     success_cnt1[i]+=1
                 if fn2(maze,q):
                     success_cnt2[i]+=1
+                if fn3(maze,q):
+                    success_cnt3[i]+=1
             maze[fire_source[0],fire_source[1]]=2
     success_rate1 = [1.0*i/num_maze/cnt_initial_fire for i in success_cnt1]
     success_rate2 = [1.0 * i / num_maze / cnt_initial_fire for i in success_cnt2]
+    success_rate3 = [1.0 * i / num_maze / cnt_initial_fire for i in success_cnt3]
     plt.plot(x_axis, success_rate1, label='strategy_1')
     plt.plot(x_axis, success_rate2, label='strategy_2')
+    plt.plot(x_axis, success_rate3, label='strategy_3')
     plt.title('average successes vs flammability q')
     plt.xlabel('flammability q')
     plt.ylabel('average successes rate')
     plt.legend()
-    plt.show()
+    plt.savefig('1.png')
 
+def compare_method(fn1,fn2,fn3,maze,q):
+    dim = maze.shape[0]
+    advanced_maze = generate_advanced_maze(maze,q,step=int(dim**2))
+    l= [0,0,0]
+    if fn1(maze, q, advanced_maze):
+        l[0] += 1
+    if fn2(maze, q, advanced_maze):
+        l[1] += 1
+    if fn3(maze, q, advanced_maze):
+        l[2] += 1
+    return l
+@timer(True)
+def plot_success_vs_flammability_multi_process(fn1,fn2,fn3,dim=30,p=0.3,num_maze = 10, cnt_initial_fire = 10):
+
+    q_list = [i for i in np.arange(0,1.01,0.05)]
+    success_cnt1 = [0 for i in range(len(q_list))]
+    success_cnt2 = [0 for i in range(len(q_list))]
+    success_cnt3 = [0 for i in range(len(q_list))]
+    x_axis = [i*0.05 for i in range(len(q_list))]
+    for _ in tqdm(range(num_maze)):
+        maze,fire_source_list = generate_maze(dim,p,cnt_initial_fire)
+        for fire_source in fire_source_list:
+            maze[fire_source[0],fire_source[1]]=1
+            fn = partial(compare_method,fn1,fn2,fn3,maze)
+            pool = Pool(len(q_list))
+            result = pool.map(fn, q_list)
+            pool.close()
+            pool.join()
+            for cnt,i in enumerate(result):
+                success_cnt1[cnt] += i[0]
+                success_cnt2[cnt] += i[1]
+                success_cnt3[cnt] += i[2]
+            maze[fire_source[0],fire_source[1]]=2
+    success_rate1 = [1.0*i/num_maze/cnt_initial_fire for i in success_cnt1]
+    success_rate2 = [1.0 * i / num_maze / cnt_initial_fire for i in success_cnt2]
+    success_rate3 = [1.0 * i / num_maze / cnt_initial_fire for i in success_cnt3]
+    plt.plot(x_axis, success_rate1, label='strategy_1')
+    plt.plot(x_axis, success_rate2, label='strategy_2')
+    plt.plot(x_axis, success_rate3, label='strategy_3')
+    plt.title('average successes vs flammability q')
+    plt.xlabel('flammability q')
+    plt.ylabel('average successes rate')
+    plt.legend()
+    plt.savefig('multi_dim=%d.png'%(dim),dpi=500)
 
 
 
