@@ -61,7 +61,7 @@ def debug_DFS_BFS_Astar_and_generate(dim=30):
     plt.imshow(arr1,'gray')
     plt.subplot(144)
     plt.imshow(arr2,'gray')
-    plt.show()
+    plt.savefig('debug_DFS_BFS_Astar_and_generate.png',dpi=500)
 
 def debug_generate_maze(dim=30):
     arr, fire_list = generate_maze(dim, 0.3)
@@ -81,13 +81,21 @@ def debug_advanced_maze(dim=30):
         arr[fire_source[0], fire_source[1]] = 1
     print('fire_point: ',fire_source_list)
     q = 1
-    step = 50 #[i for i in range(0,50,5)]
-    arr = generate_advanced_maze(arr, q, step)
+    step = 10 #[i for i in range(0,50,5)]
+    list_new_fire = generate_advanced_maze(arr, q, step)
     print(len(arr))
-    for cnt,i in enumerate(range(0,50,5)):
-        plt.subplot(5,2,cnt+1)
-        plt.imshow(arr[i],'gray')
-    plt.show()
+    print((list_new_fire))
+    # for i in range(step):
+    #
+    # for cnt,i in enumerate(range(0,50,5)):
+    #     plt.subplot(5,2,cnt+1)
+    for cnt,fires in enumerate(list_new_fire):
+        for f in fires:
+            arr[f]=1
+        if cnt%1==0:
+            plt.subplot(5, 2, cnt//1+1)
+            plt.imshow(arr,'gray')
+    plt.savefig('debug_advanced_maze.png',dpi=500)
 
 def debug_strategy_one(dim=30):
     arr, fire_list = generate_maze(dim, 0.3)
@@ -118,5 +126,5 @@ def debug_cost_map(dim=20,q=0.3):
 # plot_success_vs_flammability(strategy_one,strategy_two,dim=5,p=0.3,num_maze = 10, cnt_initial_fire = 10)
 # plot_success_vs_flammability(strategy_two,strategy_three,dim=5,p=0.3,num_maze = 10, cnt_initial_fire = 10)
 
-plot_method = partial(plot_success_vs_flammability_multi_process ,dim=20,p=0.3,num_maze = 10, cnt_initial_fire = 10)
+plot_method = partial(plot_success_vs_flammability_multi_process ,dim=30,p=0.3,num_maze = 10, cnt_initial_fire = 10)
 plot_method(strategy_one,strategy_two,strategy_three)

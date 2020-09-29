@@ -228,38 +228,35 @@ def generate_maze(dim,p,cnt_initial_fire = 10):
     # while not search_valid(maze_matrix):
     maze_matrix,fire_source_list = generate_random_matrix(dim,p,cnt_initial_fire)
     return maze_matrix,fire_source_list
-@timer(False)
-def generate_advanced_maze(maze_matrix,q,step = 0):
+
+def generate_advanced_maze(maze_matrix_,q,step = 0):
     '''
     advanced maze at a specific step
     :param maze_matrix:
     :param q:
     :param step:
-    :return: maze list, [maze_1, ..., maze_step]
+    :return: list of new fire list of each step
     '''
-    maze_matrix_advance = copy.deepcopy(maze_matrix)
-    dim = maze_matrix.shape[0]
-    maze_matrix_advance_list = []
+    list_new_fire= []
+    maze_matrix =copy.deepcopy(maze_matrix_)
+    fire_list = set([tuple(p) for p in np.argwhere(maze_matrix == 1)])
+    neighbor_dict = {}
+    list_current_new_fire = fire_list
     for _ in range(step):
-        for i in range(dim):
-            for j in range(dim):
-                if maze_matrix[i, j] == 1 or maze_matrix[i, j] ==0:
-                    continue
-                elif maze_matrix[i, j] == 2:
-                    cnt_neighbor_on_fire = 0
-                    if i - 1 >= 0 and maze_matrix[i - 1, j] == 1:
-                        cnt_neighbor_on_fire += 1
-                    if j - 1 >= 0 and maze_matrix[i, j - 1] == 1:
-                        cnt_neighbor_on_fire += 1
-                    if i + 1 < dim and maze_matrix[i + 1, j] == 1:
-                        cnt_neighbor_on_fire += 1
-                    if j + 1 < dim and maze_matrix[i, j + 1] == 1:
-                        cnt_neighbor_on_fire += 1
-                    if np.random.rand() <= 1 - (1 - q) ** cnt_neighbor_on_fire:
-                        maze_matrix_advance[i, j] = 1
-        maze_matrix = copy.deepcopy(maze_matrix_advance)
-        maze_matrix_advance_list.append(copy.deepcopy(maze_matrix_advance))
-    return maze_matrix_advance_list
+        dim = maze_matrix.shape[0]
+        for fire_point in list_current_new_fire:
+            for nn in get_neighbor(fire_point, dim):
+                if maze_matrix[nn]==2:
+                    neighbor_dict[nn] = neighbor_dict.get(nn,0)+1
+        list_current_new_fire = set()
+        for nn in neighbor_dict:
+            if np.random.rand() <= 1 - (1 - q) ** neighbor_dict[nn]:
+                list_current_new_fire.add(nn)
+        for kk in list_current_new_fire:
+            neighbor_dict.pop(kk)
+        list_new_fire.append(list_current_new_fire)
+    return list_new_fire
+
 
 @timer(False)
 def BFS_search(matrix,start_point):
@@ -313,14 +310,15 @@ def BFS_search(matrix,start_point):
 def get_neighbor(pos,dim):
     neighbor_list = []
     if pos[0]-1>=0:
-        neighbor_list.append([pos[0]-1,pos[1]])
+        neighbor_list.append((pos[0]-1,pos[1]))
     if pos[0]+1<dim:
-        neighbor_list.append([pos[0]+1,pos[1]])
+        neighbor_list.append((pos[0]+1,pos[1]))
     if pos[1]-1>=0:
-        neighbor_list.append([pos[0],pos[1]-1])
+        neighbor_list.append((pos[0],pos[1]-1))
     if pos[1]+1<dim:
-        neighbor_list.append([pos[0],pos[1]+1])
+        neighbor_list.append((pos[0],pos[1]+1))
     return neighbor_list
+
 def generate_cost_map(matrix_,fire_point_list,q):
     matrix = copy.deepcopy(matrix_)
     dim = matrix.shape[0]
@@ -338,9 +336,9 @@ def generate_cost_map(matrix_,fire_point_list,q):
         l_new_fire = []
         for i in fire_point_list:
             for j in get_neighbor(i,dim):
-                if cost_map[j[0],j[1]] == 0:
+                if cost_map[j] == 0:
                     l_new_fire.append(j)
-                    cost_map[j[0], j[1]] = cost_map[i[0],i[1]] + 1
+                    cost_map[j] = cost_map[j] + 1
         fire_point_list = copy.deepcopy(l_new_fire)
     cost_map[cost_map==1]=2
     cost_map = np.exp(10*q**cost_map)
@@ -453,32 +451,36 @@ def Astar_search(matrix, start_point):
         return []
 
 # @timer(False)
-def strategy_one(maze_init,q,advanced_maze):
+def strategy_one(maze_init_,q,advanced_maze):
     '''
     find the shortest path (BFS) of the initial maze, and ignore the fire advance.
     :param maze_init:
     :param q:
     :return:
     '''
+    maze_init = copy.deepcopy(maze_init_)
     shortest_path = BFS_search(maze_init,[0,0])
     # advanced_maze = generate_advanced_maze(maze_init,q,step = len(shortest_path)-1)
-    for maze,pos in zip(advanced_maze,shortest_path[1::]):
-        if maze[pos[0],pos[1]] == 2:
+    for maze_new_fire,pos in zip(advanced_maze,shortest_path[1::]):
+        for fire in maze_new_fire:
+            maze_init[fire]=1
+        if maze_init[pos[0],pos[1]] == 2:
             continue
-        elif maze[pos[0],pos[1]] == 0:
+        elif maze_init[pos[0],pos[1]] == 0:
             print("warning...its occupied space, you should not be there")
-        elif maze[pos[0], pos[1]] == 1:
+        elif maze_init[pos[0], pos[1]] == 1:
             return False
     return True
 
 # @timer(False)
-def strategy_two(maze_init,q, advanced_maze):
+def strategy_two(maze_init_,q, advanced_maze):
     '''
     recompute the shortest path (BFS) of the current maze at each step.
     :param maze_init:
     :param q:
     :return:
     '''
+    maze_init = copy.deepcopy(maze_init_)
     start_point = [0, 0]
     dim = maze_init.shape[0]
     current_step = 0
@@ -488,15 +490,16 @@ def strategy_two(maze_init,q, advanced_maze):
             return False
         next_point = shortest_path[1]
         # advanced_maze = generate_advanced_maze(maze_init,q,step = 1)[0]
-        if advanced_maze[current_step][next_point[0],next_point[1]] == 1:
+        for new_fire in advanced_maze[current_step]:
+            maze_init[new_fire]=1
+        if maze_init[next_point[0],next_point[1]] == 1:
             return False
         if next_point == [dim-1,dim-1]:
             return True
-        maze_init = advanced_maze[current_step]
         start_point = next_point
         current_step += 1
 
-def strategy_three_(maze_init,q):
+def strategy_three(maze_init_,q, advanced_maze):
     '''
     using A star method
     :param maze_init:
@@ -504,46 +507,18 @@ def strategy_three_(maze_init,q):
     :return:
     '''
     start_point = [0, 0]
-    dim = maze_init.shape[0]
-
-    while 1:
-        fire_point_list = []
-        temp_f = np.where(maze_init == 1)
-        for i, j in zip(temp_f[0],temp_f[1]):
-            fire_point_list.append([i, j])
-        shortest_path = Astar_search_future(maze_init, start_point,fire_point_list,q)
-        if len(shortest_path)==0:
-            return False
-        next_point = shortest_path[1]
-        advanced_maze = generate_advanced_maze(maze_init,q,step = 1)[0]
-
-        if advanced_maze[next_point[0],next_point[1]] == 1:
-            return False
-        if next_point == [dim-1,dim-1]:
-            return True
-        maze_init = advanced_maze
-        start_point = next_point
-
-def strategy_three(maze_init,q, advanced_maze):
-    '''
-    using A star method
-    :param maze_init:
-    :param q:
-    :return:
-    '''
-    start_point = [0, 0]
-    dim = maze_init.shape[0]
+    dim = maze_init_.shape[0]
+    maze_init = copy.deepcopy(maze_init_)
     current_step = 0
     while 1:
-        advanced_maze_suppose = generate_advanced_maze(maze_init, q=1, step=1)[0]
-        # print(len(advanced_maze_suppose))
+        advanced_maze_suppose = copy.deepcopy(maze_init)
+        for new_fire in  generate_advanced_maze(maze_init, q=1, step=1)[0]:
+            advanced_maze_suppose[new_fire]=1
         # plt.subplot(131)
         # plt.imshow(maze_init,'gray')
         # plt.subplot(132)
         # plt.imshow(advanced_maze_suppose,'gray')
-        # plt.subplot(133)
-        # plt.imshow(advanced_maze[current_step],'gray')
-        # plt.savefig('debug.png')
+
         shortest_path = Astar_search(advanced_maze_suppose, start_point)
         if len(shortest_path)==0:
             shortest_path = Astar_search(maze_init, start_point)
@@ -551,11 +526,15 @@ def strategy_three(maze_init,q, advanced_maze):
                 return False
         next_point = shortest_path[1]
         # advanced_maze = generate_advanced_maze(maze_init,q ,step = 1)[0]
-        if advanced_maze[current_step][next_point[0],next_point[1]] == 1:
+        for new_fire in advanced_maze[current_step]:
+            maze_init[new_fire]=1
+        # plt.subplot(133)
+        # plt.imshow(maze_init,'gray')
+        # plt.savefig('debug.png')
+        if maze_init[next_point[0],next_point[1]] == 1:
             return False
         if next_point == [dim-1,dim-1]:
             return True
-        maze_init = advanced_maze[current_step]
         start_point = next_point
         current_step+=1
 
@@ -593,14 +572,19 @@ def plot_success_vs_flammability(fn1,fn2,fn3,dim=30,p=0.3,num_maze = 10, cnt_ini
 
 def compare_method(fn1,fn2,fn3,maze,q):
     dim = maze.shape[0]
+    # t0 = time.time()
     advanced_maze = generate_advanced_maze(maze,q,step=int(dim**2))
+    # t1 = time.time()
     l= [0,0,0]
     if fn1(maze, q, advanced_maze):
         l[0] += 1
+    # t2 = time.time()
     if fn2(maze, q, advanced_maze):
         l[1] += 1
+    # t3 = time.time()
     if fn3(maze, q, advanced_maze):
         l[2] += 1
+    # print('advance: ',t1-t0,'s1: ',t2-t1,'s2: ',t3-t2,'s3: ',time.time()-t3)
     return l
 @timer(True)
 def plot_success_vs_flammability_multi_process(fn1,fn2,fn3,dim=30,p=0.3,num_maze = 10, cnt_initial_fire = 10):
