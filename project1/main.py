@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib as mpl
-mpl.use("Agg")
+# mpl.use("Agg")
 import matplotlib.pyplot as plt
 import  time
 import copy
@@ -241,12 +241,13 @@ def generate_advanced_maze(maze_matrix_,q,step = 0):
     maze_matrix =copy.deepcopy(maze_matrix_)
     fire_list = set([tuple(p) for p in np.argwhere(maze_matrix == 1)])
     neighbor_dict = {}
+    already_fire = copy.deepcopy(fire_list)
     list_current_new_fire = fire_list
     for _ in range(step):
         dim = maze_matrix.shape[0]
         for fire_point in list_current_new_fire:
             for nn in get_neighbor(fire_point, dim):
-                if maze_matrix[nn]==2:
+                if maze_matrix[nn]==2 and nn not in already_fire:
                     neighbor_dict[nn] = neighbor_dict.get(nn,0)+1
         list_current_new_fire = set()
         for nn in neighbor_dict:
@@ -255,6 +256,8 @@ def generate_advanced_maze(maze_matrix_,q,step = 0):
         for kk in list_current_new_fire:
             neighbor_dict.pop(kk)
         list_new_fire.append(list_current_new_fire)
+        already_fire = already_fire.union(list_current_new_fire)
+    # print('generate',list_new_fire)
     return list_new_fire
 
 
@@ -459,7 +462,7 @@ def strategy_one(maze_init_,q,advanced_maze):
     :return:
     '''
     maze_init = copy.deepcopy(maze_init_)
-    shortest_path = BFS_search(maze_init,[0,0])
+    shortest_path = Astar_search(maze_init,[0,0])
     # advanced_maze = generate_advanced_maze(maze_init,q,step = len(shortest_path)-1)
     for maze_new_fire,pos in zip(advanced_maze,shortest_path[1::]):
         for fire in maze_new_fire:
@@ -485,7 +488,7 @@ def strategy_two(maze_init_,q, advanced_maze):
     dim = maze_init.shape[0]
     current_step = 0
     while 1:
-        shortest_path = BFS_search(maze_init, start_point)
+        shortest_path = Astar_search(maze_init, start_point)
         if len(shortest_path)==0:
             return False
         next_point = shortest_path[1]
@@ -499,7 +502,7 @@ def strategy_two(maze_init_,q, advanced_maze):
         start_point = next_point
         current_step += 1
 
-def strategy_three(maze_init_,q, advanced_maze):
+def strategy_three(maze_init_,q, advanced_maze, see_future_step=1):
     '''
     using A star method
     :param maze_init:
@@ -512,25 +515,29 @@ def strategy_three(maze_init_,q, advanced_maze):
     current_step = 0
     while 1:
         advanced_maze_suppose = copy.deepcopy(maze_init)
-        for new_fire in  generate_advanced_maze(maze_init, q=1, step=1)[0]:
-            advanced_maze_suppose[new_fire]=1
-        # plt.subplot(131)
-        # plt.imshow(maze_init,'gray')
-        # plt.subplot(132)
-        # plt.imshow(advanced_maze_suppose,'gray')
+        future_maze = generate_advanced_maze(maze_init, q=1, step=see_future_step)
 
+        for new_fire_future in future_maze:
+            for new_fire in  new_fire_future:
+                advanced_maze_suppose[new_fire]=1
+        future_maze.insert(0,[])
         shortest_path = Astar_search(advanced_maze_suppose, start_point)
-        if len(shortest_path)==0:
-            shortest_path = Astar_search(maze_init, start_point)
+
+        for pp in future_maze[::-1]:
+            shortest_path = Astar_search(advanced_maze_suppose, start_point)
             if len(shortest_path)==0:
-                return False
+                for new_fire_future in pp:
+                    advanced_maze_suppose[new_fire_future]=2
+            else:
+                break
+
+        if len(shortest_path) == 0:
+            return False
         next_point = shortest_path[1]
         # advanced_maze = generate_advanced_maze(maze_init,q ,step = 1)[0]
         for new_fire in advanced_maze[current_step]:
             maze_init[new_fire]=1
-        # plt.subplot(133)
-        # plt.imshow(maze_init,'gray')
-        # plt.savefig('debug.png')
+
         if maze_init[next_point[0],next_point[1]] == 1:
             return False
         if next_point == [dim-1,dim-1]:
@@ -538,82 +545,98 @@ def strategy_three(maze_init_,q, advanced_maze):
         start_point = next_point
         current_step+=1
 
-@timer(True)
-def plot_success_vs_flammability(fn1,fn2,fn3,dim=30,p=0.3,num_maze = 10, cnt_initial_fire = 10):
-
-    q_list = [i for i in np.arange(0,1.01,0.05)]
-    success_cnt1 = [0 for i in range(len(q_list))]
-    success_cnt2 = [0 for i in range(len(q_list))]
-    success_cnt3 = [0 for i in range(len(q_list))]
-    x_axis = [i*0.05 for i in range(len(q_list))]
-    for _ in tqdm(range(num_maze)):
-        maze,fire_source_list = generate_maze(dim,p,cnt_initial_fire)
-        for fire_source in fire_source_list:
-            maze[fire_source[0],fire_source[1]]=1
-            for i,q in enumerate(q_list):
-                if fn1(maze,q):
-                    success_cnt1[i]+=1
-                if fn2(maze,q):
-                    success_cnt2[i]+=1
-                if fn3(maze,q):
-                    success_cnt3[i]+=1
-            maze[fire_source[0],fire_source[1]]=2
-    success_rate1 = [1.0*i/num_maze/cnt_initial_fire for i in success_cnt1]
-    success_rate2 = [1.0 * i / num_maze / cnt_initial_fire for i in success_cnt2]
-    success_rate3 = [1.0 * i / num_maze / cnt_initial_fire for i in success_cnt3]
-    plt.plot(x_axis, success_rate1, label='strategy_1')
-    plt.plot(x_axis, success_rate2, label='strategy_2')
-    plt.plot(x_axis, success_rate3, label='strategy_3')
-    plt.title('average successes vs flammability q')
-    plt.xlabel('flammability q')
-    plt.ylabel('average successes rate')
-    plt.legend()
-    plt.savefig('1.png')
+def strategy_three(maze_init_,q, advanced_maze, see_future_step=1):
+    '''
+    using A star method
+    :param maze_init:
+    :param q:
+    :return:
+    '''
+    start_point = [0, 0]
+    dim = maze_init_.shape[0]
+    maze_init = copy.deepcopy(maze_init_)
+    current_step = 0
+    while 1:
+        advanced_maze_suppose = copy.deepcopy(maze_init)
+        list_advanced_maze_suppose = []
+        for new_fires in  generate_advanced_maze(maze_init, q=1, step=see_future_step):
+            for new_fire in new_fires:
+                advanced_maze_suppose[new_fire]=1
+            list_advanced_maze_suppose.append(copy.deepcopy(advanced_maze_suppose))
+        for cnt,supposed in enumerate(list_advanced_maze_suppose[::-1]):
+            shortest_path = Astar_search(supposed, start_point)
+            if len(shortest_path)==0:
+                if cnt==(len(list_advanced_maze_suppose)-1):
+                    shortest_path = Astar_search(maze_init, start_point)
+                    if len(shortest_path) == 0:
+                        return False
+                    else:
+                        break
+                else:
+                    continue
+            else:
+                break
+        next_point = shortest_path[1]
+        # advanced_maze = generate_advanced_maze(maze_init,q ,step = 1)[0]
+        for new_fire in advanced_maze[current_step]:
+            maze_init[new_fire]=1
+        if maze_init[next_point[0],next_point[1]] == 1:
+            return False
+        if next_point == [dim-1,dim-1]:
+            return True
+        start_point = next_point
+        current_step+=1
 
 def compare_method(fn1,fn2,fn3,maze,q):
     dim = maze.shape[0]
-    # t0 = time.time()
     advanced_maze = generate_advanced_maze(maze,q,step=int(dim**2))
-    # t1 = time.time()
-    l= [0,0,0]
+    l= [0,0,0,0]
     if fn1(maze, q, advanced_maze):
         l[0] += 1
-    # t2 = time.time()
     if fn2(maze, q, advanced_maze):
         l[1] += 1
-    # t3 = time.time()
-    if fn3(maze, q, advanced_maze):
+    if fn3(maze, q, advanced_maze, see_future_step=1):
         l[2] += 1
-    # print('advance: ',t1-t0,'s1: ',t2-t1,'s2: ',t3-t2,'s3: ',time.time()-t3)
+    if fn3(maze, q, advanced_maze, see_future_step=4):
+        l[3] += 1
+
     return l
 @timer(True)
-def plot_success_vs_flammability_multi_process(fn1,fn2,fn3,dim=30,p=0.3,num_maze = 10, cnt_initial_fire = 10):
-
+def plot_success_vs_flammability_multi_thread(fn1,fn2,fn3,dim=30,p=0.3,num_maze = 10, cnt_initial_fire = 10, use_multi_thread=False):
     q_list = [i for i in np.arange(0,1.01,0.05)]
     success_cnt1 = [0 for i in range(len(q_list))]
     success_cnt2 = [0 for i in range(len(q_list))]
     success_cnt3 = [0 for i in range(len(q_list))]
+    success_cnt4 = [0 for i in range(len(q_list))]
     x_axis = [i*0.05 for i in range(len(q_list))]
     for _ in tqdm(range(num_maze)):
         maze,fire_source_list = generate_maze(dim,p,cnt_initial_fire)
         for fire_source in fire_source_list:
             maze[fire_source[0],fire_source[1]]=1
-            fn = partial(compare_method,fn1,fn2,fn3,maze)
-            pool = Pool(len(q_list))
-            result = pool.map(fn, q_list)
-            pool.close()
-            pool.join()
+            if use_multi_thread:
+                fn = partial(compare_method,fn1,fn2,fn3,maze)
+                pool = Pool(len(q_list))
+                result = pool.map(fn, q_list)
+                pool.close()
+                pool.join()
+            else:
+                result=[]
+                for qq in q_list:
+                    result.append(compare_method(fn1,fn2,fn3,maze,qq))
             for cnt,i in enumerate(result):
                 success_cnt1[cnt] += i[0]
                 success_cnt2[cnt] += i[1]
                 success_cnt3[cnt] += i[2]
+                success_cnt4[cnt] += i[3]
             maze[fire_source[0],fire_source[1]]=2
     success_rate1 = [1.0*i/num_maze/cnt_initial_fire for i in success_cnt1]
     success_rate2 = [1.0 * i / num_maze / cnt_initial_fire for i in success_cnt2]
     success_rate3 = [1.0 * i / num_maze / cnt_initial_fire for i in success_cnt3]
+    success_rate4 = [1.0 * i / num_maze / cnt_initial_fire for i in success_cnt4]
     plt.plot(x_axis, success_rate1, label='strategy_1')
     plt.plot(x_axis, success_rate2, label='strategy_2')
-    plt.plot(x_axis, success_rate3, label='strategy_3')
+    plt.plot(x_axis, success_rate3, label='strategy_3_n=1')
+    plt.plot(x_axis, success_rate4, label='strategy_3_n=5')
     plt.title('average successes vs flammability q')
     plt.xlabel('flammability q')
     plt.ylabel('average successes rate')
