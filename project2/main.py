@@ -2,7 +2,7 @@ import numpy as np
 import random
 import matplotlib.pyplot as plt
 
-seed =4
+seed =3
 random.seed(seed)
 np.random.seed(seed)
 
@@ -69,25 +69,31 @@ class KnowledgeBase():
     def inference(self):
         safe_pos = self.all_safe_pos()
         self.deduced_safe_queue_to_click = []
-        for pos in safe_pos:
-            if self.num_hidden[pos]!=0:
-                #### calculate num of neighbors  ( 8 except for edge and corner )
-                x,y = pos
-                if x*(self.dim-1-x) + y*(self.dim-1-y)==0:
-                    sum_safe = 3
-                elif x*(self.dim-1-x) * y*(self.dim-1-y) !=0:
-                    sum_safe = 8
-                else:
-                    sum_safe = 5
-                #### two constraint rules
-                ## mine
-                if self.state[pos]-self.num_mine_identified[pos]==self.num_hidden[pos]:
-                    self.num_mine_identified[pos]+=self.num_hidden[pos]
-                    self.set_hidden_to_mine(pos)
-                ## safe
-                elif sum_safe-self.state[pos]-self.num_safe_identified[pos]==self.num_hidden[pos]:
-                    self.num_safe_identified[pos]+=self.num_hidden[pos]
-                    self.deduced_safe(pos)
+        flag_revisit = 1
+        while flag_revisit:
+            flag_revisit = 0
+            for pos in safe_pos:
+                if self.num_hidden[pos]!=0:
+                    #### calculate num of neighbors  ( 8 except for edge and corner )
+                    x,y = pos
+                    if x*(self.dim-1-x) + y*(self.dim-1-y)==0:
+                        sum_safe = 3
+                    elif x*(self.dim-1-x) * y*(self.dim-1-y) !=0:
+                        sum_safe = 8
+                    else:
+                        sum_safe = 5
+
+                    #### two constraint rules
+                    ## mine
+                    if self.state[pos]-self.num_mine_identified[pos]==self.num_hidden[pos]:
+                        self.num_mine_identified[pos]+=self.num_hidden[pos]
+                        self.set_hidden_to_mine(pos)
+                        flag_revisit = 1
+                    ## safe
+                    elif sum_safe-self.state[pos]-self.num_safe_identified[pos]==self.num_hidden[pos]:
+                        self.num_safe_identified[pos]+=self.num_hidden[pos]
+                        self.deduced_safe(pos)
+                        flag_revisit = 1
     def update(self,pos_list,pos_state_list):
         for (pos,pos_state) in zip(pos_list,pos_state_list):
             self.state[pos]=pos_state
@@ -98,6 +104,11 @@ class KnowledgeBase():
         self.num_hidden_of_neighbor_reduced_by_1(i,j)
         ## center is mine or safe, reduce neighbor num_safe/mine by 1
         array = self.num_safe_identified if pos_state!=-1 else self.num_mine_identified
+        if pos_state==-1:
+            print("This reveal is mine")
+        self.num_mine_or_safe_of_neighbor_add_by_1(array,i,j)
+
+    def num_mine_or_safe_of_neighbor_add_by_1(self,array,i,j):
         if i - 1 >= 0:
             array[i-1,j]+=1
         if i + 1 < self.dim :
@@ -144,57 +155,74 @@ class KnowledgeBase():
     def set_hidden_to_mine(self,pos):
         # value
         i,j = pos
-        print("mark as mine: ")
+        print("deduced as mine: ")
         if i - 1 >= 0 and self.state[i - 1, j] == -2:
             self.state[i - 1, j] = -1
             self.num_hidden_of_neighbor_reduced_by_1(i-1,j)
+            self.num_mine_or_safe_of_neighbor_add_by_1(self.num_mine_identified,i-1,j)
             print((i-1,j))
         if i + 1 < self.dim and self.state[i + 1, j] == -2:
             self.state[i + 1, j] = -1
             self.num_hidden_of_neighbor_reduced_by_1(i+1,j)
+            self.num_mine_or_safe_of_neighbor_add_by_1(self.num_mine_identified, i+1,j)
             print((i + 1, j))
         if j - 1 >= 0 and self.state[i, j - 1] == -2:
             self.state[i, j - 1] = -1
             self.num_hidden_of_neighbor_reduced_by_1(i,j-1)
+            self.num_mine_or_safe_of_neighbor_add_by_1(self.num_mine_identified, i,j-1)
             print((i , j- 1))
         if j + 1 < self.dim and self.state[i, j + 1] == -2:
             self.state[i, j + 1] = -1
             self.num_hidden_of_neighbor_reduced_by_1(i,j+1)
+            self.num_mine_or_safe_of_neighbor_add_by_1(self.num_mine_identified, i,j+1)
             print((i, j + 1))
         if i - 1 >= 0 and j + 1 < self.dim and self.state[i - 1, j + 1] == -2:
             self.state[i - 1, j + 1] = -1
             self.num_hidden_of_neighbor_reduced_by_1(i-1,j+1)
+            self.num_mine_or_safe_of_neighbor_add_by_1(self.num_mine_identified, i-1,j+1)
             print((i-1, j + 1))
         if i + 1 < self.dim and j - 1 >= 0 and self.state[i + 1, j - 1] == -2:
             self.state[i + 1, j - 1] = -1
             self.num_hidden_of_neighbor_reduced_by_1(i+1,j-1)
+            self.num_mine_or_safe_of_neighbor_add_by_1(self.num_mine_identified, i+1,j-1)
             print((i + 1, j - 1))
         if j - 1 >= 0 and i - 1 > 0 and self.state[i - 1, j - 1] == -2:
             self.state[i - 1, j - 1] = -1
             self.num_hidden_of_neighbor_reduced_by_1(i-1,j-1)
+            self.num_mine_or_safe_of_neighbor_add_by_1(self.num_mine_identified, i-1,j-1)
             print((i - 1, j - 1))
         if j + 1 < self.dim and i + 1 < self.dim and self.state[i + 1, j + 1] == -2:
             self.state[i + 1, j + 1] = -1
             self.num_hidden_of_neighbor_reduced_by_1(i+1,j+1)
+            self.num_mine_or_safe_of_neighbor_add_by_1(self.num_mine_identified, i+1,j+1)
             print((i + 1, j + 1))
     def deduced_safe(self,pos):
         i,j = pos
+        print("deduced as safe: ")
         if i - 1 >= 0 and self.state[i - 1, j] == -2:
             self.deduced_safe_queue_to_click.append((i-1,j))
+            print((i - 1, j))
         if i + 1 < self.dim and self.state[i + 1, j] == -2:
             self.deduced_safe_queue_to_click.append((i+1,j))
+            print((i + 1, j))
         if j - 1 >= 0 and self.state[i, j - 1] == -2:
             self.deduced_safe_queue_to_click.append((i,j-1))
+            print((i, j-1))
         if j + 1 < self.dim and self.state[i, j + 1] == -2:
             self.deduced_safe_queue_to_click.append((i,j+1))
+            print((i, j+1))
         if i - 1 >= 0 and j + 1 < self.dim and self.state[i - 1, j + 1] == -2:
             self.deduced_safe_queue_to_click.append((i-1,j+1))
+            print((i - 1, j+1))
         if i + 1 < self.dim and j - 1 >= 0 and self.state[i + 1, j - 1] == -2:
             self.deduced_safe_queue_to_click.append((i+1,j-1))
+            print((i + 1, j-1))
         if j - 1 >= 0 and i - 1 > 0 and self.state[i - 1, j - 1] == -2:
             self.deduced_safe_queue_to_click.append((i-1,j-1))
+            print((i - 1, j-1))
         if j + 1 < self.dim and i + 1 < self.dim and self.state[i + 1, j + 1] == -2:
             self.deduced_safe_queue_to_click.append((i+1,j+1))
+            print((i + 1, j + 1))
     def all_safe_pos(self):
         safe_x, safe_y = np.where(self.state >=0)
         return [(i, j) for (i, j) in zip(safe_x, safe_y)]
@@ -210,8 +238,12 @@ class KnowledgeBase():
             if len(all_hidden)==0:
                 return []
             else:
+                print('--- next round is random reveal')
                 return random.sample(self.all_hidden_pos(),1)
 
+class KnowledgeBase_IMP(KnowledgeBase):
+    def inference(self):
+        pass
 class Agent():
     def __init__(self,dim,n):
         self.KB = KnowledgeBase(dim)
@@ -220,7 +252,7 @@ class Agent():
         return [self.env.report(pos) for pos in pos_list]
 
     def strategy_BL(self):
-        print("start")
+        print("start Baseline Strategy")
         round = 0
         explore_pos = self.KB.get_next_round_clicks()
 
@@ -243,6 +275,29 @@ class Agent():
                 plt.imshow(self.KB.num_safe_identified)
                 plt.show()
         print("finsh")
+    def strategy_IMP(self):
+        print("start Improved Strategy")
+        round = 0
+        explore_pos = self.KB.get_next_round_clicks()
 
+        while(len(explore_pos)!=0):
+            round+=1
+            print("round: ",round,"explore :",explore_pos)
+
+            explore_pos_state = self.explore(explore_pos)
+            self.KB.update(explore_pos,explore_pos_state)
+            explore_pos = self.KB.get_next_round_clicks()
+            #### debug
+            if 1:
+                plt.subplot(141)
+                plt.imshow(self.env.env)
+                plt.subplot(142)
+                plt.imshow(self.KB.state)
+                plt.subplot(143)
+                plt.imshow(self.KB.num_hidden)
+                plt.subplot(144)
+                plt.imshow(self.KB.num_safe_identified)
+                plt.show()
+        print("finsh")
 
 
